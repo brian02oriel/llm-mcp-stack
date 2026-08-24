@@ -3,7 +3,7 @@ import logging
 from typing import Any
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from openai import AsyncOpenAI
 
 from config import settings
@@ -42,7 +42,7 @@ def extract_text(result: Any) -> str:
 
 async def fetch_tool_schemas() -> list[dict]:
     """Called once at startup. Tool definitions are stable between deployments."""
-    async with streamablehttp_client(settings.mcp_url) as (read, write, _):
+    async with streamable_http_client(settings.mcp_url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = (await session.list_tools()).tools
@@ -59,7 +59,7 @@ async def run_conversation(user_message: str, tool_schemas: list[dict]) -> dict:
     ]
     trace: list[dict] = []
 
-    async with streamablehttp_client(settings.mcp_url) as (read, write, _):
+    async with streamable_http_client(settings.mcp_url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
