@@ -1,0 +1,15 @@
+services:
+  mcp:
+    build: ./mcp_server
+    ports: ["9000:9000"]
+
+  gateway:
+    build: ./gateway
+    ports: ["8080:8080"]
+    environment:
+      # host.docker.internal reaches Ollama running natively on the Mac.
+      # Containers cannot use Metal, so the model stays outside Docker.
+      LLM_BASE_URL: http://host.docker.internal:11434/v1
+      LLM_MODEL: qwen3:4b
+      MCP_URL: http://mcp:9000/mcp
+    depends_on: [mcp]

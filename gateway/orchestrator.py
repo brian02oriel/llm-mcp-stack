@@ -8,10 +8,16 @@ from openai import AsyncOpenAI
 
 from config import settings
 
+
+from llm_client import build_llm_client, model_arg
+
+llm = build_llm_client()
+
 log = logging.getLogger(__name__)
 
-llm = AsyncOpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key)
+# llm = AsyncOpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key)
 
+# Should be a plain text, without any variable substitutions to prevent cache to break
 SYSTEM_PROMPT = (
     "You are a financial analyst assistant. "
     "You must never invent, estimate or calculate figures yourself — always obtain "
@@ -27,7 +33,7 @@ def mcp_tool_to_openai(tool: Any) -> dict:
         "function": {
             "name": tool.name,
             "description": tool.description or "",
-            "parameters": tool.inputSchema,   # MCP already emits JSON Schema
+            "parameters": tool.input_schema,   # MCP already emits JSON Schema
         },
     }
 
@@ -42,7 +48,7 @@ def extract_text(result: Any) -> str:
 
 async def fetch_tool_schemas() -> list[dict]:
     """Called once at startup. Tool definitions are stable between deployments."""
-    async with streamable_http_client(settings.mcp_url) as (read, write, _):
+    async with streamable_http_client(settings.mcp_url) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = (await session.list_tools()).tools
@@ -52,24 +58,28 @@ async def fetch_tool_schemas() -> list[dict]:
 
 async def run_conversation(user_message: str, tool_schemas: list[dict]) -> dict:
     """The core loop: model → tool calls → results → model → ... → answer."""
-    content = user_message + (" /no_think" if settings.disable_thinking else "")
+    content = user_message
+    if not settings.use_azure and settings.disable_thinking:
+        content += " /no_think"
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": content},
     ]
     trace: list[dict] = []
 
-    async with streamable_http_client(settings.mcp_url) as (read, write, _):
+    async with streamable_http_client(settings.mcp_url) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
             for turn in range(settings.max_tool_turns):
                 response = await llm.chat.completions.create(
-                    model=settings.llm_model,
+                    model=model_arg(),
                     messages=messages,
                     tools=tool_schemas,
                     tool_choice="auto",
-                    temperature=0.1,          # low: this is routing, not writing
+                    temperature=0.1,
+                    max_tokens=settings.max_output_tokens,
+                    parallel_tool_calls=False,   # see note below
                 )
                 message = response.choices[0].message
                 messages.append(message.model_dump(exclude_none=True))
